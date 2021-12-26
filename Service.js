@@ -229,10 +229,11 @@ class Service {
         return new RegExp(rule, 'i');
     }
 
-    resetData() {
-        this.currentLetter = {}
-        this.usedWords = {}
+    resetData(chatId) {
+        delete this.currentLetter[chatId]
+        delete this.usedWords[chatId]
     }
+
 
     capitalizeCity(city) {
         return city.charAt(0).toUpperCase() + city.slice(1)
@@ -271,29 +272,32 @@ class Service {
         ]
     }
 
-    // async writeToDB(data) {
-    //     for (let i = 0; i < data.length; i++) {
-    //         const city = new Model({
-    //             name: data[i]
-    //         })
-    //         await city.save()
-    //     }
-    // }
-    //
-    // convertData() {
-    //     const key = 'city_id";"country_id";"region_id";"name'
-    //     const results = []
-    //     fs.createReadStream('data.csv', { encoding: 'utf-8' })
-    //         .pipe(csv())
-    //         .on('data', data => {
-    //             const value = data[key].split(';').pop().replace('"', '')
-    //             return results.push(value)
-    //         })
-    //         .on('end', async () => {
-    //             await this.connectToDB()
-    //             await this.writeToDB(results)
-    //         });
-    // }
+
+    // функция для записи информации из csv в базу данных
+    async writeToDB(data) {
+        for (let i = 0; i < data.length; i++) {
+            const city = new Model({
+                name: data[i]
+            })
+            await city.save()
+        }
+    }
+
+    // функция для чтения csv
+    convertData() {
+        const key = 'city_id";"country_id";"region_id";"name'
+        const results = []
+        fs.createReadStream('data.csv', { encoding: 'utf-8' })
+            .pipe(csv())
+            .on('data', data => {
+                const value = data[key].split(';').pop().replace('"', '')
+                return results.push(value)
+            })
+            .on('end', async () => {
+                await this.connectToDB()
+                await this.writeToDB(results)
+            });
+    }
 }
 
 export default Service
