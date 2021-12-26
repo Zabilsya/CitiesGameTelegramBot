@@ -78,7 +78,7 @@ class Service {
                     const remainCities = await Model.find({name: {$nin: this.usedWords[chatId], $regex: this.getRegex(`^${char}`)}})
                     if (remainCities && remainCities.length === 0) {
                         this.currentGames = this.currentGames.filter(game => game !== chatId)
-                        this.resetData()
+                        this.resetData(chatId)
                         return `${cityName}\nВы проиграли! Города на букву '${char.toUpperCase()}' закончились\nЧтобы начать новую игру, введите команду /go`
                     }
                     this.usedWords[chatId].push(cityName.toLowerCase())
@@ -88,7 +88,7 @@ class Service {
             }
         }
         this.currentGames = this.currentGames.filter(game => game !== chatId)
-        this.resetData()
+        this.resetData(chatId)
         return `Вы выиграли! Города на букву '${char.toUpperCase()}' закончились\nЧтобы начать новую игру, введите команду /start`
     }
 
@@ -122,12 +122,12 @@ class Service {
                 result = 'Хотите начать игру заного? Введите команду /restart'
                 break
             case '/restart':
-                this.resetData()
+                this.resetData(chatId)
                 result = 'Давай по новой:) Первый город?'
                 break
             case '/stop':
                 this.currentGames = this.currentGames.filter(game => game !== chatId)
-                this.resetData()
+                this.resetData(chatId)
                 result = 'Я ушел отдохнуть... Зови, как будешь свободен'
                 break
             case '/words':
@@ -173,12 +173,12 @@ class Service {
         let result
         switch (text) {
             case '/start':
-                this.resetData()
+                this.resetData(chatId)
                 result = 'Приветствую тебя в игре "Города"!\n/go - Начать игру \n/watch - Список доступных команд'
                 break
             case '/go':
                 this.currentGames.push(chatId)
-                this.resetData()
+                this.resetData(chatId)
                 result = 'Да начнется игра! Скажи свой первый город'
                 break
             case '/info':
