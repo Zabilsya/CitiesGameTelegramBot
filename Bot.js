@@ -1,3 +1,4 @@
+import DB from './DB.js'
 import Service from './Service.js'
 import TelegramApi from 'node-telegram-bot-api'
 
@@ -5,7 +6,8 @@ class Bot {
 
     constructor() {
         this.token = process.env.TELEGRAM_TOKEN
-        this.service = new Service()
+        new DB()
+        this.serviceCity = new Service()
         this.api = new TelegramApi(this.token, {polling: true})
 
         this.hangEvents()
@@ -15,9 +17,9 @@ class Bot {
         this.api.setMyCommands(this.setCommands())
 
         this.api.on('message', async message => {
-            const { text, chat } = message
-            const answer = await this.service.getAnswer(chat.id, text)
-            await this.api.sendMessage(chat.id, answer)
+            console.log(message)
+            const answer = await this.serviceCity.getAnswer(message)
+            await this.api.sendMessage(message.chat.id, answer)
         })
     }
 

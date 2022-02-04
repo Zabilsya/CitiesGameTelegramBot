@@ -1,61 +1,47 @@
-import mongoose from 'mongoose'
 import axios from 'axios';
 import csv from 'csv-parser'
 import fs from 'fs'
-import Model from './Model.js'
+import {City, User} from './Models.js'
 
 class Service {
 
     constructor() {
-        this.token = process.env.DATABASE_TOKEN
         this.apiCityUrl = 'https://nominatim.openstreetmap.org/search/'
         this.apiCityParams = '?format=json&addressdetails=1&limit=1&accept-language=ru&extratags=1'
         this.redundantLetters = ['ь', 'ъ', 'ы']
         this.currentGames = []
         this.currentLetter = {}
         this.usedWords = {}
-
-        this.connectToDB()
+        this.usedWordsByUser = {}
     }
 
-    connectToDB() {
-        mongoose.connect(this.token, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true
-        }, (error) => {
-            if (!error) {
-                console.log('Успешное подключение к базе данных!')
-            } else {
-                console.log('Ошибка подключения к базе данных!')
-            }
-        })
-    }
-
-    async getAnswer(chatId, text) {
+    async getAnswer(message) {
         try {
-            const checkInputCommands = await this.checkInputCommands(chatId, text)
+            const { chat, text } = message
+            const checkInputCommands = await this.checkInputCommands(message)
             if (checkInputCommands) {
                 return checkInputCommands
             }
 
-            this.checkExistingData(chatId)
+            this.checkExistingData(chat.id)
             const city = text.toLowerCase()
-            const checkInputCity = this.checkInputCity(chatId, city)
+            const checkInputCity = this.checkInputCity(chat.id, city)
             if (checkInputCity) {
                 return checkInputCity
             }
 
-            const response = await Model.findOne({name: {$regex: this.getRegex(`^${city}$`)}})
+            const response = await City.findOne({name: {$regex: this.getRegex(`^${city}$`)}})
 
             if (response) {
                 const name = response.name.toLowerCase()
-                this.usedWords[chatId].push(name)
+                this.usedWords[chat.id].push(name)
+                this.usedWordsByUser[chat.id].push(name)
                 const reverseName = name.split('').reverse().join('')
 
                 // бот отправляет свой город
                 for (let char of reverseName) {
                     if (!this.redundantLetters.includes(char)) {
-                        return await this.findAndSendNewCity(chatId, char)
+                        return await this.findAndSendNewCity(chat.id, char)
                     }
                 }
             }
@@ -67,7 +53,7 @@ class Service {
     }
 
     async findAndSendNewCity(chatId, char) {
-        let cities = await Model.find({name: {$nin: this.usedWords[chatId], $regex: this.getRegex(`^${char}`)}})
+        let cities = await City.find({name: {$nin: this.usedWords[chatId], $regex: this.getRegex(`^${char}`)}})
         if (cities && cities.length > 0) {
             const numbersOfCities = cities.length
             const randomNumber = Math.floor(Math.random() * numbersOfCities)
@@ -75,7 +61,7 @@ class Service {
             const reverseCityName = cityName.split('').reverse().join('')
             for (let char of reverseCityName) {
                 if (!this.redundantLetters.includes(char)) {
-                    const remainCities = await Model.find({name: {$nin: this.usedWords[chatId], $regex: this.getRegex(`^${char}`)}})
+                    const remainCities = await City.find({name: {$nin: this.usedWords[chatId], $regex: this.getRegex(`^${char}`)}})
                     if (remainCities && remainCities.length === 0) {
                         this.currentGames = this.currentGames.filter(game => game !== chatId)
                         this.resetData(chatId)
@@ -103,37 +89,39 @@ class Service {
         return false
     }
 
-    async checkInputCommands(chatId, text) {
+    async checkInputCommands(message) {
         let result
-        if (this.currentGames.includes(chatId)) {
-            result = await this.checkGameCommands(chatId, text)
+        if (this.currentGames.includes(message.chat.id)) {
+            result = await this.checkGameCommands(message)
         } else {
-            result = this.checkOutGameCommands(chatId, text)
+            result = await this.checkOutGameCommands(message)
         }
 
         return result
     }
 
-    async checkGameCommands(chatId, text) {
+    async checkGameCommands({ chat, text }) {
         let result = false
         switch (text) {
             case '/go':
-                this.currentGames.push(chatId)
                 result = 'Хотите начать игру заного? Введите команду /restart'
                 break
             case '/restart':
-                this.resetData(chatId)
+                await this.changeGamesCount(chat.id)
+                await this.changeWordsCount(chat.id)
+                this.resetData(chat.id)
                 result = 'Давай по новой:) Первый город?'
                 break
             case '/stop':
-                this.currentGames = this.currentGames.filter(game => game !== chatId)
-                this.resetData(chatId)
+                await this.changeWordsCount(chat.id)
+                this.currentGames = this.currentGames.filter(game => game !== chat.id)
+                this.resetData(chat.id)
                 result = 'Я ушел отдохнуть... Зови, как будешь свободен'
                 break
             case '/words':
-                if (this.usedWords[chatId] && this.usedWords[chatId].length > 0) {
+                if (this.usedWords[chat.id] && this.usedWords[chat.id].length > 0) {
                     let words = 'Список использованных городов:'
-                    let arrWords = [...this.usedWords[chatId]]
+                    let arrWords = [...this.usedWords[chat.id]]
                     arrWords.sort().forEach((word, index) => words += `\n${index + 1}.  ${this.capitalizeCity(word)}`)
                     result = words
                 } else {
@@ -142,9 +130,9 @@ class Service {
                 break
             case '/city':
                 let message = ''
-                if (this.usedWords[chatId]) {
-                    const numberOfWords = this.usedWords[chatId].length
-                    const info = await this.getCityInfo(this.usedWords[chatId][numberOfWords - 1])
+                if (this.usedWords[chat.id]) {
+                    const numberOfWords = this.usedWords[chat.id].length
+                    const info = await this.getCityInfo(this.usedWords[chat.id][numberOfWords - 1])
                     if (typeof info === 'object') {
                         Object.keys(info).forEach(key => {
                             message += `\n${info[key]}`
@@ -169,20 +157,22 @@ class Service {
         return result
     }
 
-    checkOutGameCommands(chatId, text) {
+    async checkOutGameCommands({ from, chat, text }) {
         let result
         switch (text) {
             case '/start':
-                this.resetData(chatId)
+                await this.getUserInfo(chat.id)
                 result = 'Приветствую тебя в игре "Города"!\n/go - Начать игру \n/watch - Список доступных команд'
                 break
             case '/go':
-                this.currentGames.push(chatId)
-                this.resetData(chatId)
+                this.currentGames.push(chat.id)
+                await this.changeGamesCount(chat.id)
                 result = 'Да начнется игра! Скажи свой первый город'
                 break
             case '/info':
-                result = 'пока пусто'
+                const { first_name, last_name } = from
+                const user = await this.getUserInfo(chat.id)
+                result = this.showUserInfo(user, first_name, last_name)
                 break
             case '/watch':
                 let commands = 'Доступные команды:'
@@ -218,10 +208,48 @@ class Service {
         return 'Не удалось получить информацию по городу ' + this.capitalizeCity(city)
     }
 
+    async getUserInfo(id) {
+        let user = await User.findOne({user_id: String(id)})
+        if (!user) {
+            user = new User({
+                user_id: String(id),
+                games_count: 0,
+                words_count: 0
+            })
+            await user.save()
+        }
+        return user
+    }
+
+    showUserInfo(user, firstName, lastName) {
+        return `Данные профиля:\nИмя: ${firstName}\nФамилия: ${lastName}\nКоличество сыгранных игр: ${user['games_count']}\nКоличество сыгранных слов: ${user['words_count']}`
+    }
+
+    async changeGamesCount(id) {
+        if (this.usedWordsByUser[id]) {
+            await User.updateOne({
+                user_id: String(id)
+            }, {
+                $inc: {games_count: 1}
+            })
+        }
+    }
+
+    async changeWordsCount(id) {
+        if (this.usedWordsByUser[id]) {
+            await User.updateOne({
+                user_id: String(id)
+            }, {
+                $inc: {words_count: this.usedWordsByUser[id].length}
+            })
+        }
+    }
+
     checkExistingData(chatId) {
         if (!this.currentLetter.hasOwnProperty(chatId)) {
             this.currentLetter[chatId] = ''
             this.usedWords[chatId] = []
+            this.usedWordsByUser[chatId] = []
         }
     }
 
@@ -232,6 +260,7 @@ class Service {
     resetData(chatId) {
         delete this.currentLetter[chatId]
         delete this.usedWords[chatId]
+        delete this.usedWordsByUser[chatId]
     }
 
 
@@ -276,7 +305,7 @@ class Service {
     // функция для записи информации из csv в базу данных
     async writeToDB(data) {
         for (let i = 0; i < data.length; i++) {
-            const city = new Model({
+            const city = new City({
                 name: data[i]
             })
             await city.save()
@@ -294,7 +323,6 @@ class Service {
                 return results.push(value)
             })
             .on('end', async () => {
-                await this.connectToDB()
                 await this.writeToDB(results)
             });
     }
